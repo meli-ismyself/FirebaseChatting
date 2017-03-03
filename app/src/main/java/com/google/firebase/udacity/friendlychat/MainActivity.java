@@ -15,16 +15,10 @@
  */
 package com.google.firebase.udacity.friendlychat;
 
-import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.Editable;
 import android.text.InputFilter;
@@ -40,7 +34,6 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.Toast;
-
 import com.firebase.ui.auth.AuthUI;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
@@ -51,21 +44,24 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     public static final int MY_PERMISSIONS_REQUEST_READ_EXTERNAL_STORAGE = 123;
-
-
     public static final String ANONYMOUS = "anonymous";
+    private static final String FRIENDLY_MSG_LENGTH_KEY = "friendly_msg_length";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
     public static final int RC_SIGN_IN = 1;
     private static final int RC_PHOTO_PICKER = 2;
@@ -85,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth.AuthStateListener mAuthStateListener;
     private FirebaseStorage mFirebaseStorage;
     private StorageReference mChatPhotosStorageReference;
+    private FirebaseRemoteConfig mFirebaseRemoteConfig;
 
 
     @Override
@@ -98,6 +95,7 @@ public class MainActivity extends AppCompatActivity {
         mFirebaseDatabase = FirebaseDatabase.getInstance();
         mFirebaseAuth = FirebaseAuth.getInstance();
         mFirebaseStorage = FirebaseStorage.getInstance();
+        mFirebaseRemoteConfig = FirebaseRemoteConfig.getInstance();
 
         mMessageDatabaseReference = mFirebaseDatabase.getReference().child("messages");
         mChatPhotosStorageReference = mFirebaseStorage.getReference().child("chat_photos");
@@ -185,6 +183,18 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         };
+
+        FirebaseRemoteConfigSettings configSettings = new FirebaseRemoteConfigSettings.Builder()
+                .setDeveloperModeEnabled(BuildConfig.DEBUG)
+                .build();
+
+        mFirebaseRemoteConfig.setConfigSettings(configSettings);
+
+        Map<String, Object> defaultConfigMap = new HashMap<>();
+        defaultConfigMap.put(FRIENDLY_MSG_LENGTH_KEY, DEFAULT_MSG_LENGTH_LIMIT);
+        mFirebaseRemoteConfig.setDefaults(defaultConfigMap);
+
+        fetchMessage();
     }
 
     private void onSignedInInitialize(String userName) {
@@ -329,4 +339,37 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
     }*/
+
+    public void fetchMessage() {
+        long cacheExpiration = 3600;
+
+        if (mFirebaseRemoteConfig.getInfo().getConfigSettings().isDeveloperModeEnabled()){
+            cacheExpiration = 0;
+            mFirebaseRemoteConfig.fetch(cacheExpiration)
+                    .addOnSuccessListener(new OnSuccessListener<Void>() {
+                        @Override
+                        public void onSuccess(Void aVoid) {
+                            mFirebaseRemoteConfig.activateFetched();
+                            applyRetrievedLengthLimit();
+
+                        }
+                    })
+
+                    .addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
+                            Log.w(TAG, "Error fetching config", e);
+
+                            applyRetrievedLengthLimit();
+                        }
+                    });
+        }
+    }
+
+    private void applyRetrievedLengthLimit() {
+        Long friendly_msg_length = mFirebaseRemoteConfig.getLong(FRIENDLY_MSG_LENGTH_KEY);
+        mMessageEditText.setFilters(new InputFilter[]{new
+                InputFilter.LengthFilter(friendly_msg_length.intValue())});
+        Log.d(TAG, FRIENDLY_MSG_LENGTH_KEY + " = " + friendly_msg_length);
+    }
 }
